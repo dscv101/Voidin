@@ -1,4 +1,3 @@
-```bash
 #!/usr/bin/env bash
 # void_install.sh - Complete Void Linux Installation Script
 
@@ -214,4 +213,3 @@ main() {
 
 # Run the script
 main "$@"
-```
