@@ -14,8 +14,8 @@ DISK="/dev/nvme0n1"  # Change this to match your disk
 BOOT_SIZE="1G"
 SWAP_SIZE="16G"      # Optimized for hibernation
 ROOT_BLOCK_SIZE="4k" # Optimal for FireCuda
-HOSTNAME="void"
-USERNAME="user"      # Change this
+HOSTNAME="blazar"
+USERNAME="dscv"      # Change this
 YUBIKEY_SLOT=2      # Change this to match your Yubikey slot
 
 # Colors for output
@@ -135,6 +135,7 @@ swapon /dev/vg0/swap
 xbps-install -Sy \
     base-devel \
     git \
+    systemd-boot \
     bc \
     kmod \
     flex \
@@ -203,7 +204,7 @@ EOF
     ykfde \
     efibootmgr \
     wayland \
-    sway \
+    niri \
     foot \
     waybar \
     wofi \
@@ -229,7 +230,7 @@ cat > /mnt/configure.sh <<EOF
 set -euo pipefail
 
 # Set timezone
-ln -sf /usr/share/zoneinfo/UTC /etc/localtime
+ln -sf /usr/share/zoneinfo/Americas/Chicago /etc/localtime
 
 # Set locale
 echo "en_US.UTF-8 UTF-8" > /etc/locale.gen
