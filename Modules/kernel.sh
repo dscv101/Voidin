@@ -17,13 +17,13 @@ configure_kernel() {
     log "Downloading and applying patches..."
     
     # Download BORE scheduler patch
-    wget https://raw.githubusercontent.com/firelzrd/bore-scheduler/main/bore-current.patch || \
+    wget https://raw.githubusercontent.com/firelzrd/bore-scheduler/refs/heads/main/patches/stable/linux-6.12-bore/0001-linux6.12.y-bore5.7.15.patch || \
         error "Failed to download BORE scheduler patch"
     
-    patch -p1 < bore-current.patch || error "Failed to apply BORE scheduler patch"
+    patch -p1 < 0001-linux6.12.y-bore5.7.15.patch || error "Failed to apply BORE scheduler patch"
     
     # Download and apply BBR3 patch
-    wget https://raw.githubusercontent.com/google/bbr/v3/linux/net/ipv4/tcp_bbr3.c || \
+    wget https://raw.githubusercontent.com/google/bbr/refs/heads/v3/net/ipv4/tcp_bbr.c || \
         error "Failed to download BBR3 patch"
     
     cp tcp_bbr3.c net/ipv4/ || error "Failed to copy BBR3 source"
