@@ -1,4 +1,3 @@
-```bash
 #!/usr/bin/env bash
 # modules/development.sh - Development environment setup
 
@@ -339,4 +338,3 @@ create_dev_dirs() {
         mkdir -p /etc/skel/Projects/templates/{python,rust,node}
     "
 }
-```
