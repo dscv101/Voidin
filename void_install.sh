@@ -39,6 +39,8 @@ source "${SCRIPT_DIR}/modules/helpers.sh"
 source "${SCRIPT_DIR}/modules/configs.sh"
 source "${SCRIPT_DIR}/modules/kernel.sh"
 source "${SCRIPT_DIR}/modules/development.sh"
+source "${SCRIPT_DIR}/modules/theme.sh"
+
 
 print_banner() {
     echo -e "${BLUE}"
@@ -203,6 +205,7 @@ main() {
     install_bootloader
     configure_kernel
     setup_development_environment
+    setup_themes
     create_user
     configure_services
     finalize_installation
