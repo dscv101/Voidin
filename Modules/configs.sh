@@ -1,4 +1,3 @@
-```bash
 #!/usr/bin/env bash
 # modules/configs.sh - System configuration templates
 
@@ -262,4 +261,3 @@ Persistent=true
 WantedBy=timers.target
 EOF
 }
-```
