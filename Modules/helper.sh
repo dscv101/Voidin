@@ -52,9 +52,9 @@ prepare_disk() {
         --iter-time 5000 \
         --pbkdf argon2id \
         --verify-passphrase \
-        "${DISK}2"
+        "${DISK}p2"
     
-    cryptsetup open "${DISK}2" cryptroot
+    cryptsetup open "${DISK}p2" cryptroot
     
     log "Setting up LVM..."
     pvcreate /dev/mapper/cryptroot
@@ -69,7 +69,7 @@ prepare_disk() {
     
     log "Formatting partitions..."
     # Format EFI partition
-    mkfs.vfat -F32 "${DISK}1"
+    mkfs.vfat -F32 "${DISK}p1"
     
     # Format XFS partitions with optimizations
     local xfs_options="-d su=128k,sw=4 -m reflink=1,bigtime=1,crc=1,finobt=1,inode64=1 -l size=128m,version=2,sunit=32,su=128k -i size=512"
@@ -95,7 +95,7 @@ mount_filesystems() {
     mount /dev/vg0/home /mnt/home
     mount /dev/vg0/var /mnt/var
     mount /dev/vg0/tmp /mnt/tmp
-    mount "${DISK}1" /mnt/boot/efi
+    mount "${DISK}p1" /mnt/boot/efi
     
     # Verify mounts
     if ! mountpoint -q /mnt/boot/efi; then
