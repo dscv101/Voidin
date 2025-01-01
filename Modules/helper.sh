@@ -1,4 +1,3 @@
-```bash
 #!/usr/bin/env bash
 # modules/helpers.sh - Helper functions for installation
 
@@ -204,4 +203,3 @@ finalize_installation() {
     # Final sync
     sync
 }
-```
