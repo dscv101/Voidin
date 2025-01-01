@@ -1,4 +1,3 @@
-```bash
 #!/usr/bin/env bash
 # modules/kernel.sh - Kernel configuration and build
 
@@ -161,4 +160,3 @@ EOF
 
     log "Kernel configuration and build completed"
 }
-```
