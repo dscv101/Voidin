@@ -1,0 +1,472 @@
+#!/bin/bash
+
+# Void Linux Installation Script
+# Requirements:
+# - systemd-boot
+# - LVM with XFS
+# - LUKS encryption with Yubikey
+# - Wayland (no Xorg)
+
+set -euo pipefail
+
+# Configuration variables
+DISK="/dev/nvme0n1"  # Change this to match your disk
+BOOT_SIZE="1G"
+SWAP_SIZE="16G"      # Optimized for hibernation
+ROOT_BLOCK_SIZE="4k" # Optimal for FireCuda
+HOSTNAME="void"
+USERNAME="user"      # Change this
+YUBIKEY_SLOT=2      # Change this to match your Yubikey slot
+
+# Colors for output
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+BLUE='\033[0;34m'
+YELLOW='\033[1;33m'
+NC='\033[0m'
+
+# Progress indicator function
+progress() {
+    echo -ne "${BLUE}[....] ${1}${NC}\r"
+    sleep 0.5
+    echo -ne "${BLUE}[█...] ${1}${NC}\r"
+    sleep 0.5
+    echo -ne "${BLUE}[██..] ${1}${NC}\r"
+    sleep 0.5
+    echo -ne "${BLUE}[███.] ${1}${NC}\r"
+    sleep 0.5
+    echo -ne "${BLUE}[████] ${1}${NC}\r"
+    echo
+}
+
+# Helper functions
+info() {
+    echo -e "${GREEN}[INFO]${NC} $1"
+}
+
+error() {
+    echo -e "${RED}[ERROR]${NC} $1"
+    exit 1
+}
+
+# Check if running as root
+if [ "$(id -u)" != "0" ]; then
+    error "This script must be run as root"
+fi
+
+# Check for required tools
+for cmd in cryptsetup lvm2 mkfs.xfs mkfs.vfat; do
+    if ! command -v $cmd &> /dev/null; then
+        error "$cmd is required but not installed"
+    fi
+done
+
+# Partition the disk
+info "Creating partitions..."
+parted -s ${DISK} mklabel gpt
+parted -s ${DISK} mkpart ESP fat32 1MiB ${BOOT_SIZE}
+parted -s ${DISK} set 1 boot on
+parted -s ${DISK} mkpart primary ${BOOT_SIZE} 100%
+
+# Setup LUKS encryption with Yubikey
+info "Setting up LUKS encryption..."
+# Validate user inputs
+validate_inputs() {
+    local disk="$1"
+    local username="$2"
+    
+    [[ $disk =~ ^/dev/(sd[a-z]|nvme[0-9]n[1-9])$ ]] || error "Invalid disk format"
+    [[ $username =~ ^[a-z_][a-z0-9_-]*[$]?$ ]] || error "Invalid username format"
+    [[ $(id -u) -eq 0 ]] || error "Must run as root"
+}
+
+# Enhanced LUKS parameters
+cryptsetup luksFormat \
+    --type luks2 \
+    --cipher aes-xts-plain64 \
+    --key-size 512 \
+    --hash sha512 \
+    --iter-time 10000 \
+    --sector-size 4096 \
+    --pbkdf argon2id \
+    --pbkdf-force-iterations 10 \
+    --pbkdf-memory 1048576 \
+    --pbkdf-parallel 4 \
+    --verify-passphrase \
+    --use-random \
+    ${DISK}p2
+
+# Secure config permissions
+secure_configs() {
+    chmod 600 /etc/crypttab
+    chmod 600 /etc/fstab
+    chmod 600 /etc/u2f-mappings/auth_mapping
+    chmod 600 /etc/modules-load.d/*
+    chmod 600 /etc/sysctl.d/*
+    chmod 700 /etc/lvm/backup
+    chmod 700 /etc/lvm/archive
+    chmod 600 /boot/efi/loader/entries/*
+    chown -R root:root /etc/crypttab /etc/fstab /etc/u2f-mappings /boot/efi
+}
+ykfde-format -d ${DISK}p2 -s ${YUBIKEY_SLOT}
+cryptsetup luksOpen ${DISK}p2 cryptroot
+
+# Setup LVM
+info "Setting up LVM..."
+pvcreate /dev/mapper/cryptroot
+vgcreate vg0 /dev/mapper/cryptroot
+lvcreate -L ${SWAP_SIZE} -n swap vg0
+lvcreate -l 100%FREE -n root vg0
+
+# Create filesystems
+info "Creating filesystems..."
+mkfs.vfat -F32 ${DISK}p1
+mkfs.xfs -b size=${ROOT_BLOCK_SIZE} -s size=4k -m reflink=1,crc=1 /dev/vg0/root
+mkswap /dev/vg0/swap
+
+# Mount filesystems
+info "Mounting filesystems..."
+mount /dev/vg0/root /mnt
+mkdir -p /mnt/boot/efi
+mount ${DISK}p1 /mnt/boot/efi
+swapon /dev/vg0/swap
+
+# Install build dependencies
+xbps-install -Sy \
+    base-devel \
+    git \
+    bc \
+    kmod \
+    flex \
+    bison \
+    elfutils-devel \
+    liblz4-devel \
+    openssl-devel \
+    perl \
+    python3 \
+    rsync \
+    libzstd-devel
+
+# Download and prepare kernel
+cd /usr/src
+wget https://cdn.kernel.org/pub/linux/kernel/v6.x/linux-6.12.7.tar.xz
+tar xf linux-6.12.7.tar.xz
+cd linux-6.12.7
+
+# Download patches
+wget https://raw.githubusercontent.com/firelzrd/bore-scheduler/main/bore-6.12.patch
+wget https://raw.githubusercontent.com/google/bbr/main/bbr3-6.12.patch
+wget https://raw.githubusercontent.com/dtaht/sch_cake/main/cake-6.12.patch
+
+# Apply patches
+patch -p1 < bore-6.12.patch
+patch -p1 < bbr3-6.12.patch
+patch -p1 < cake-6.12.patch
+
+# Configure kernel
+cp /boot/config-$(uname -r) .config
+scripts/config --set-str LOCALVERSION "-bore-bbr3-cake"
+scripts/config --enable CONFIG_SCHED_BORE
+scripts/config --enable TCP_CONG_BBR3
+scripts/config --enable NET_SCH_CAKE
+make olddefconfig
+
+# Build and install kernel
+make -j$(nproc)
+make modules_install
+make install
+
+# Update bootloader entry
+cat > /boot/efi/loader/entries/void-custom.conf <<EOF
+title Void Linux (6.12.7-bore-bbr3-cake)
+linux /vmlinuz-6.12.7-bore-bbr3-cake
+initrd /amd-ucode.img
+initrd /initramfs-6.12.7-bore-bbr3-cake.img
+options cryptdevice=UUID=$(blkid -s UUID -o value ${DISK}p2):cryptroot:allow-discards root=/dev/vg0/root rw quiet loglevel=3 amd_pstate=active threadirqs preempt=voluntary mitigations=off
+EOF
+    amd-ucode \
+    cpupower \
+    msr-tools \
+    smartmontools \
+    nvme-cli \
+    thermald \
+    lm_sensors \
+    fancontrol \
+    thermald \
+    nvidia \
+    nvidia-libs \
+    nvidia-libs-32bit \
+    vulkan-loader \
+    cryptsetup \
+    lvm2 \
+    yubikey-personalization \
+    ykfde \
+    efibootmgr \
+    wayland \
+    sway \
+    foot \
+    waybar \
+    wofi \
+    NetworkManager \
+    linux \
+    linux-headers \
+    void-repo-nonfree \
+    libfido2 \
+    pam-u2f \
+    pamu2fcfg \
+    git \
+    vim \
+    sudo
+
+# Generate fstab
+info "Generating fstab..."
+genfstab -U /mnt >> /mnt/etc/fstab
+
+# Chroot and configure
+info "Configuring system..."
+cat > /mnt/configure.sh <<EOF
+#!/bin/bash
+set -euo pipefail
+
+# Set timezone
+ln -sf /usr/share/zoneinfo/UTC /etc/localtime
+
+# Set locale
+echo "en_US.UTF-8 UTF-8" > /etc/locale.gen
+locale-gen
+echo "LANG=en_US.UTF-8" > /etc/locale.conf
+
+# Set hostname
+echo "${HOSTNAME}" > /etc/hostname
+
+# Configure mkinitcpio
+sed -i 's/HOOKS=.*/HOOKS=(base udev autodetect modconf block encrypt lvm2 filesystems keyboard fsck)/' /etc/mkinitcpio.conf
+mkinitcpio -P
+
+# Install and configure systemd-boot
+bootctl --path=/boot/efi install
+cat > /boot/efi/loader/loader.conf <<LOADER
+default void
+timeout 3
+LOADER
+
+cat > /boot/efi/loader/entries/void.conf <<ENTRY
+title Void Linux
+linux /vmlinuz-linux
+initrd /initramfs-linux.img
+options cryptdevice=UUID=$(blkid -s UUID -o value ${DISK}p2):cryptroot:allow-discards root=/dev/vg0/root rw amd_pstate=active amd_pstate.shared_mem=1 initcall_blacklist=acpi_cpufreq_init pcie_aspm=off iommu=pt amd_iommu=on nvidia_drm.modeset=1 nvidia-drm.fbdev=1
+ENTRY
+
+# Configure zRAM
+cat > /etc/modules-load.d/zram.conf <<EOF
+zram
+EOF
+
+cat > /etc/udev/rules.d/99-zram.rules <<EOF
+KERNEL=="zram0", ATTR{comp_algorithm}="zstd", ATTR{disksize}="16G", RUN="/usr/bin/mkswap /dev/zram0", TAG+="systemd"
+EOF
+
+cat > /etc/systemd/system/zram.service <<EOF
+[Unit]
+Description=zRAM setup
+After=local-fs.target
+
+[Service]
+Type=oneshot
+ExecStart=/sbin/swapon /dev/zram0 -p 32767
+ExecStop=/sbin/swapoff /dev/zram0
+RemainAfterExit=yes
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+# Update sysctl for zRAM
+cat >> /etc/sysctl.d/99-kernel.conf <<EOF
+
+# TCP BBR3 settings optimized for modern networks
+net.core.default_qdisc = cake
+net.ipv4.tcp_congestion_control = bbr3
+net.ipv4.tcp_notsent_lowat = 32768
+net.ipv4.tcp_fastopen = 3
+net.core.rmem_max = 16777216
+net.core.wmem_max = 16777216
+net.ipv4.tcp_rmem = 8192 262144 16777216
+net.ipv4.tcp_wmem = 8192 262144 16777216
+net.ipv4.tcp_max_syn_backlog = 8192
+net.core.somaxconn = 8192
+net.ipv4.tcp_max_tw_buckets = 2000000
+net.ipv4.tcp_tw_reuse = 1
+EOF
+
+modprobe tcp_bbr3
+echo "tcp_bbr3" > /etc/modules-load.d/bbr3.conf
+vm.swappiness = 180
+vm.watermark_boost_factor = 0
+vm.watermark_scale_factor = 125
+vm.page-cluster = 0
+EOF
+cat > /etc/NetworkManager/conf.d/00-macrandomize.conf <<EOF
+[device]
+wifi.scan-rand-mac-address=yes
+
+[connection]
+wifi.cloned-mac-address=random
+ethernet.cloned-mac-address=random
+connection.stable-id=\${CONNECTION}/\${BOOT}
+EOF
+
+# Add systemd-udev rules for MAC randomization
+cat > /etc/udev/rules.d/75-mac-spoof.rules <<EOF
+ACTION=="add", SUBSYSTEM=="net", ATTR{address}!="", \
+    RUN+="/usr/bin/ip link set dev %k address \
+    \$(openssl rand -hex 1):\$(openssl rand -hex 1):\$(openssl rand -hex 1):\$(openssl rand -hex 1):\$(openssl rand -hex 1):\$(openssl rand -hex 1)"
+EOF
+mkdir -p /etc/u2f-mappings
+pamu2fcfg > /etc/u2f-mappings/auth_mapping
+
+# Add PAM configuration for FIDO2
+cat > /etc/pam.d/system-auth <<EOF
+auth     required  pam_unix.so     try_first_pass nullok
+auth     required  pam_u2f.so      authfile=/etc/u2f-mappings/auth_mapping cue
+auth     required  pam_ykfde.so    mode=verify
+
+password required  pam_unix.so     try_first_pass nullok sha512 shadow
+password required  pam_u2f.so      authfile=/etc/u2f-mappings/auth_mapping cue
+EOF
+
+# Secure FIDO2 mappings
+chmod 644 /etc/u2f-mappings/auth_mapping
+chown root:root /etc/u2f-mappings/auth_mapping
+echo "Set password for ${USERNAME}:"
+passwd ${USERNAME}
+
+# Configure sudo
+echo "%wheel ALL=(ALL) ALL" > /etc/sudoers.d/wheel
+
+# Enable essential services
+ln -s /etc/sv/smartd /etc/runit/runsvdir/default/
+ln -s /etc/sv/nvmed /etc/runit/runsvdir/default/
+ln -s /etc/sv/cpupower /etc/runit/runsvdir/default/
+ln -s /etc/sv/dbus /etc/runit/runsvdir/default/
+
+# Secure systemd-boot installation
+bootctl --path=/boot/efi install
+
+# Set boot parameters
+cat > /boot/efi/loader/loader.conf <<EOF
+default void.conf
+timeout 1
+console-mode max
+editor no
+auto-entries 0
+auto-firmware 0
+secure-boot-enroll accept
+EOF
+
+# Create boot entry
+cat > /boot/efi/loader/entries/void.conf <<EOF
+title Void Linux
+linux /vmlinuz-6.12.7-bore-bbr3-cake
+initrd /amd-ucode.img
+initrd /initramfs-6.12.7-bore-bbr3-cake.img
+options rd.luks.name=$(blkid -s UUID -o value ${DISK}p2)=cryptroot \
+    rd.luks.options=discard,keyfile-timeout=10s \
+    root=/dev/mapper/vg0-root \
+    rootflags=discard \
+    rw quiet splash \
+    amd_pstate=active \
+    threadirqs \
+    rd.systemd.show_status=auto \
+    rd.udev.log_level=3 \
+    systemd.show_status=auto \
+    loglevel=3 \
+    acpi_osi=Linux \
+    mitigations=off \
+    nowatchdog \
+    lsm=landlock,lockdown,yama,apparmor,bpf
+EOF
+
+# Set secure permissions
+chmod 700 /boot/efi
+chmod 600 /boot/efi/loader/loader.conf
+chmod 600 /boot/efi/loader/entries/*
+
+# Update EFI variables
+efibootmgr --create --disk ${DISK} \
+    --part 1 \
+    --label "Void Linux" \
+    --loader "\EFI\systemd\systemd-bootx64.efi"
+
+
+cat > /boot/efi/loader/entries/void.conf <<EOF
+title Void Linux
+linux /vmlinuz
+initrd /amd-ucode.img
+initrd /initramfs.img
+options cryptdevice=UUID=$(blkid -s UUID -o value ${DISK}p2):cryptroot:allow-discards root=/dev/vg0/root rw quiet loglevel=3 amd_pstate=active amd_pstate.shared_mem=1 initcall_blacklist=acpi_cpufreq_init pcie_aspm=off iommu=pt amd_iommu=on nvidia_drm.modeset=1 nvidia-drm.fbdev=1 threadirqs preempt=voluntary mitigations=off elevator=none selinux=0 rd.driver.blacklist=nouveau rd.driver.blacklist=radeon amdgpu.dcfeaturemask=0x8 amd_pstate=passive bore.sched_util_bias=256 bore.sched_timeslice_ms=4
+EOF
+
+# Configure sysctl parameters for kernel optimization
+cat > /etc/sysctl.d/99-kernel.conf <<EOF
+# CPU scheduler and memory
+kernel.sched_autogroup_enabled = 0
+kernel.sched_latency_ns = 1000000
+vm.swappiness = 10
+vm.dirty_ratio = 60
+vm.dirty_background_ratio = 2
+vm.vfs_cache_pressure = 50
+
+# Network optimization
+net.core.rmem_max = 16777216
+net.core.wmem_max = 16777216
+net.ipv4.tcp_fastopen = 3
+
+# NVIDIA optimizations
+vm.nr_hugepages = 128
+
+# NVMe optimization
+vm.page-cluster = 0
+EOF
+
+# Configure CPU governor and scheduler
+cat > /etc/tmpfiles.d/cpu-scheduler.conf <<EOF
+w /sys/devices/system/cpu/cpu*/cpufreq/scaling_governor - - - - schedutil
+w /sys/kernel/debug/sched_features - - - - NO_TTWU_QUEUE
+EOF
+cat > /etc/modprobe.d/nvidia.conf <<EOF
+options nvidia NVreg_UsePageAttributeTable=1
+options nvidia NVreg_EnablePCIeGen3=1
+options nvidia NVreg_RegisterForACPIEvents=1
+EOF
+
+# Configure Xorg for NVIDIA
+cat > /etc/X11/xorg.conf.d/20-nvidia.conf <<EOF
+Section "Device"
+    Identifier "NVIDIA Card"
+    Driver "nvidia"
+    Option "NoLogo" "true"
+    Option "TripleBuffer" "true"
+    Option "UseEvents" "true"
+EndSection
+EOF
+
+# Enable NVIDIA services
+cat > /etc/default/cpupower <<EOF
+governor='schedutil'
+min_freq="2.4GHz"
+max_freq="4.7GHz"
+EOF
+
+# Enable CPU frequency scaling service
+ln -s /etc/sv/cpupower /etc/runit/runsvdir/default/
+
+EOF
+
+chmod +x /mnt/configure.sh
+chroot /mnt /configure.sh
+rm /mnt/configure.sh
+
+info "Installation complete!"
+info "Please reboot and remove the installation media."
+info "After reboot, log in as ${USERNAME} and run 'sudo ykfde-enroll' to complete Yubikey setup."
