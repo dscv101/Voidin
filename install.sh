@@ -44,9 +44,9 @@ error() {
     echo -e "${RED}[-] ${1}${NC}"
     exit 1
 }
-intall_pre() {
+install_pre() {
     xbps-install -Sy xbps
-    xbps-install -Syu git github-cli nano u2f-hidraw-policy ypkers ypkers-gui dbus eudev elogind
+    xbps-install -Syu git github-cli nano u2f-hidraw-policy ykpers ykpers-gui dbus eudev elogind
     ln -s /etc/sv/{dbus,udevd,elogind} /var/service/
 }
 
