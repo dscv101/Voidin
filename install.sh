@@ -10,7 +10,7 @@ set -euo pipefail
 DEVICE="/dev/nvme0n1"
 USERNAME="dscv"
 HOSTNAME="blazar"
-TIMEZONE="UTC"
+TIMEZONE="Americas/Chicago"
 KEYMAP="us"
 LANG="en_US.UTF-8"
 
@@ -275,16 +275,16 @@ EOF
     # Create fstab
     cat > /mnt/etc/fstab << EOF
 # Root partition
-LABEL=void_root / xfs noatime,nodiratime 0 0
+LABEL=void_root / xfs defaults,noatime,nodiratime 0 0
 
 # Boot partition
 LABEL=VOID_BOOT /boot vfat noatime,nodiratime,flush,iocharset=utf8 0 2
 
 # Var partition
-LABEL=void_var /var xfs noatime,nodiratime 0 0
+LABEL=void_var /var xfs defaults,noatime,nodiratime 0 0
 
 # Home partition
-LABEL=void_home /home xfs noatime,nodiratime 0 0
+LABEL=void_home /home xfs defaults,noatime,nodiratime 0 0
 
 # Swap partition
 LABEL=void_swap none swap pri=1,discard 0 0
