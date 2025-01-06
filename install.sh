@@ -388,7 +388,7 @@ cleanup() {
 
 main() {
     # Check requirements
-    install_pre
+    # install_pre
     check_root
     check_uefi
     check_yubikey
