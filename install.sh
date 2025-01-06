@@ -219,6 +219,10 @@ mount_filesystems() {
 
 install_base_system() {
     log "Installing base system..."
+
+    # Copy xbps keys
+    mkdir -p /mnt/var/db/xbps/keys
+    cp /var/db/xbps/keys/* /mnt/var/db/xbps/keys
     
     xbps-install -Sy -R https://alpha.de.repo.voidlinux.org/current -r /mnt \
         base-system \
@@ -231,6 +235,12 @@ install_base_system() {
         linux-headers \
         void-repo-nonfree \
         ykpers \
+        ykpers-gui \
+        u2f-hidraw-policy \
+        eudev \
+        dbus \
+        pcsc-ccid \
+        pcsclite \
         ykpivmgr \
         yubico-piv-tool \
         yubikey-manager \
@@ -238,6 +248,19 @@ install_base_system() {
         ykclient-devel \
         ykneomgr \
         pam_yubico \
+        wayland \
+        niri \
+        elogind \
+        seatd \
+        wayland-protocols \
+        libinput \
+        wlroots \
+        ghostty \
+        ghostty-dbg \
+        ghostty-terminfo \
+        firefox \
+        thunar \
+        wl-clipboard \
         pam-u2f || error "Failed to install base system"
 }
 
