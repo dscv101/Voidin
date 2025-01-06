@@ -19,8 +19,8 @@ BOOT_SIZE=2048      # 2GB for EFI/boot
 SWAP_SIZE=40960     # 40GB for swap
 
 # System configuration
-ROOT_SIZE=102400    # 100GB
-VAR_SIZE=51200      # 50GB
+ROOT_SIZE=153600    # 100GB
+VAR_SIZE=153600      # 50GB
 
 # Color output
 RED='\033[0;31m'
@@ -203,15 +203,15 @@ mount_filesystems() {
     log "Mounting filesystems..."
     
     # Mount root
-    mount -o noatime,nodiratime,discard=async /dev/void/root /mnt || error "Failed to mount root"
+    mount -o noatime,nodiratime /dev/void/root /mnt || error "Failed to mount root"
 
     # Create mount points
     mkdir -p /mnt/{boot,var,home}
 
     # Mount other filesystems
     mount -o noatime,nodiratime,flush,iocharset=utf8 "${DEVICE}p1" /mnt/boot || error "Failed to mount boot"
-    mount -o noatime,nodiratime,discard=async /dev/void/var /mnt/var || error "Failed to mount var"
-    mount -o noatime,nodiratime,discard=async /dev/void/home /mnt/home || error "Failed to mount home"
+    mount -o noatime,nodiratime /dev/void/var /mnt/var || error "Failed to mount var"
+    mount -o noatime,nodiratime /dev/void/home /mnt/home || error "Failed to mount home"
 
     # Enable swap
     swapon "${DEVICE}p2" || warn "Failed to enable swap"
@@ -275,16 +275,16 @@ EOF
     # Create fstab
     cat > /mnt/etc/fstab << EOF
 # Root partition
-LABEL=void_root / xfs noatime,nodiratime,discard=async 0 0
+LABEL=void_root / xfs noatime,nodiratime 0 0
 
 # Boot partition
 LABEL=VOID_BOOT /boot vfat noatime,nodiratime,flush,iocharset=utf8 0 2
 
 # Var partition
-LABEL=void_var /var xfs noatime,nodiratime,discard=async 0 0
+LABEL=void_var /var xfs noatime,nodiratime 0 0
 
 # Home partition
-LABEL=void_home /home xfs noatime,nodiratime,discard=async 0 0
+LABEL=void_home /home xfs noatime,nodiratime 0 0
 
 # Swap partition
 LABEL=void_swap none swap pri=1,discard 0 0
@@ -310,7 +310,7 @@ EOF
 title   Void Linux
 linux   /vmlinuz
 initrd  /initramfs.img
-options rd.luks.name=$(blkid -s UUID -o value "${DEVICE}p3")=void_crypt rd.luks.options=timeout=180 rd.lvm.vg=void root=/dev/void/root rw rootflags=noatime,nodiratime,discard=async quiet loglevel=3 rd.auto=1 luks.unlock=/etc/luks/unlock-yubikey
+options rd.luks.name=$(blkid -s UUID -o value "${DEVICE}p3")=void_crypt rd.luks.options=timeout=180 rd.lvm.vg=void root=/dev/void/root rw rootflags=noatime,nodiratime quiet loglevel=3 rd.auto=1 luks.unlock=/etc/luks/unlock-yubikey
 EOF
 
     # Configure dracut
