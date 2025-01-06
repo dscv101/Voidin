@@ -7,9 +7,9 @@ set -euo pipefail
 # Global Variables #
 ###################
 
-DEVICE=""
-USERNAME=""
-HOSTNAME="voidlinux"
+DEVICE="/dev/nvme0n1"
+USERNAME="dscv"
+HOSTNAME="blazar"
 TIMEZONE="UTC"
 KEYMAP="us"
 LANG="en_US.UTF-8"
@@ -77,11 +77,18 @@ install_prerequisites() {
     log "Installing prerequisites..."
     xbps-install -Syu || error "Failed to update system"
     xbps-install -y \
-        yubikey-personalization \
-        ykchalresp \
-        cryptsetup \
+        ykpers \
+        ykclient \
+        ykclient-devel \
+        ykneomgr \
+        ykpers-gui \
+        ykpivmgr \
+        yubico-piv-tool \
         lvm2 \
+        gptfdisk \
+        cryptsetup \
         xfsprogs \
+        systemd-boot \
         efibootmgr || error "Failed to install prerequisites"
 }
 
@@ -129,7 +136,7 @@ prepare_disk() {
 setup_encryption() {
     log "Setting up encryption..."
     
-    local system_partition="${DEVICE}3"
+    local system_partition="${DEVICE}p3"
     local key_file="/root/setup/luks-key"
     local challenge
     challenge=$(cat /root/setup/luks-challenge)
@@ -180,10 +187,10 @@ format_filesystems() {
     log "Formatting filesystems..."
     
     # Format boot partition
-    mkfs.vfat -F32 -n VOID_BOOT "${DEVICE}1" || error "Failed to format boot partition"
+    mkfs.vfat -F32 -n VOID_BOOT "${DEVICE}p1" || error "Failed to format boot partition"
 
     # Format swap
-    mkswap -L void_swap "${DEVICE}2" || error "Failed to format swap"
+    mkswap -L void_swap "${DEVICE}p2" || error "Failed to format swap"
 
     # Format LVM volumes with XFS
     local xfs_options="-d su=128k,sw=1 -m crc=1,finobt=1 -i size=512"
@@ -202,12 +209,12 @@ mount_filesystems() {
     mkdir -p /mnt/{boot,var,home}
 
     # Mount other filesystems
-    mount -o noatime,nodiratime,flush,iocharset=utf8 "${DEVICE}1" /mnt/boot || error "Failed to mount boot"
+    mount -o noatime,nodiratime,flush,iocharset=utf8 "${DEVICE}p1" /mnt/boot || error "Failed to mount boot"
     mount -o noatime,nodiratime,discard=async /dev/void/var /mnt/var || error "Failed to mount var"
     mount -o noatime,nodiratime,discard=async /dev/void/home /mnt/home || error "Failed to mount home"
 
     # Enable swap
-    swapon "${DEVICE}2" || warn "Failed to enable swap"
+    swapon "${DEVICE}p2" || warn "Failed to enable swap"
 }
 
 install_base_system() {
@@ -218,13 +225,19 @@ install_base_system() {
         cryptsetup \
         lvm2 \
         xfsprogs \
+        systemd-boot \
         efibootmgr \
-        intel-ucode \
+        linux-firmware-amd \
         linux-headers \
         void-repo-nonfree \
-        yubikey-personalization \
-        ykchalresp \
-        yubico-pam \
+        ykpers \
+        ykpivmgr \
+        yubico-piv-tool \
+        yubikey-manager \
+        ykclient \
+        ykclient-devel \
+        ykneomgr \
+        pam_yubico \
         pam-u2f || error "Failed to install base system"
 }
 
@@ -297,7 +310,7 @@ EOF
 title   Void Linux
 linux   /vmlinuz
 initrd  /initramfs.img
-options rd.luks.name=$(blkid -s UUID -o value "${DEVICE}3")=void_crypt rd.luks.options=timeout=180 rd.lvm.vg=void root=/dev/void/root rw rootflags=noatime,nodiratime,discard=async quiet loglevel=3 rd.auto=1 luks.unlock=/etc/luks/unlock-yubikey
+options rd.luks.name=$(blkid -s UUID -o value "${DEVICE}p3")=void_crypt rd.luks.options=timeout=180 rd.lvm.vg=void root=/dev/void/root rw rootflags=noatime,nodiratime,discard=async quiet loglevel=3 rd.auto=1 luks.unlock=/etc/luks/unlock-yubikey
 EOF
 
     # Configure dracut
@@ -310,7 +323,7 @@ hostonly="yes"
 EOF
 
     # Create crypttab
-    echo "void_crypt UUID=$(blkid -s UUID -o value "${DEVICE}3") none luks,timeout=180,tries=3" > /mnt/etc/crypttab
+    echo "void_crypt UUID=$(blkid -s UUID -o value "${DEVICE}p3") none luks,timeout=180,tries=3" > /mnt/etc/crypttab
 }
 
 configure_users() {
@@ -356,7 +369,7 @@ main() {
     read -rp "Enter username: " USERNAME
 
     # Validate inputs
-    validate_inputs
+    # validate_inputs
 
     # Confirm installation
     warn "This will DESTROY ALL DATA on $DEVICE!"
