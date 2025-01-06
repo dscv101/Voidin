@@ -48,6 +48,7 @@ intall_pre() {
     xbps-install -Sy xbps
     xbps-install -Syu git github-cli nano u2f-hidraw-policy ypkers ypkers-gui dbus eudev elogind
     ln -s /etc/sv/{dbus,udevd,elogind} /var/service/
+}
 
 check_root() {
     if [[ $EUID -ne 0 ]]; then
