@@ -86,7 +86,7 @@ echo "Installing base system..."
 mkdir -p /mnt/var/db/xbps/keys
 cp -a /var/db/xbps/keys/* /mnt/var/db/xbps/keys/
 
-XBPS_ARCH=x86_64-musl xbps-install -Sy -R https://alpha.de.repo.voidlinux.org/current/musl -r /mnt \
+XBPS_ARCH=x86_64 xbps-install -Sy -R https://mirrors.servercentral.com/voidlinux/current/ -r /mnt \
     base-system \
     lvm2 \
     void-repo-nonfree \
